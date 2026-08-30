@@ -20,6 +20,7 @@ services:
     # S3_* now comes straight from .env (pointed at R2) — not overridden here.
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:?set POSTGRES_USER in .env}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/${POSTGRES_DB:-quackback}
+      REDIS_URL: redis://dragonfly:6379
     expose:
       - '3000'
     networks:
@@ -27,6 +28,8 @@ services:
       - dokploy-network
     depends_on:
       postgres:
+        condition: service_healthy
+      dragonfly:
         condition: service_healthy
     healthcheck:
       test:
@@ -64,6 +67,24 @@ services:
       timeout: 5s
       retries: 5
 
+  # Redis-compatible store for the BullMQ background job queue.
+  # --cluster_mode=emulated --lock_on_hashtags is required for BullMQ.
+  dragonfly:
+    image: docker.dragonflydb.io/dragonflydb/dragonfly:${DRAGONFLY_IMAGE_TAG:-latest}
+    container_name: quackback-dragonfly
+    restart: unless-stopped
+    command: ['--cluster_mode=emulated', '--lock_on_hashtags']
+    networks:
+      - internal
+    # No host port — reachable only on the internal network.
+    volumes:
+      - dragonfly_data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
 networks:
   # Private network for app <-> postgres traffic. Postgres is attached
   # here only, so it's never reachable from Traefik or the outside.
@@ -78,3 +99,4 @@ networks:
 
 volumes:
   postgres_data:
+  dragonfly_data:
